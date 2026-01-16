@@ -65,6 +65,8 @@
 #include "vl53l0x_api_calibration.h"
 #include "vl53l0x_api_core.h"
 #include "vl53l0x_api_ranging.h"
+#include "FuelLevel.h"
+#include "settings.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -790,6 +792,7 @@ int main(void)
 	ESP32Data.status = STM32_WAIT; // shalet not present
 	ESP32SendStatus();			   // shalet not present
 	DF_Init(15);
+	FuelLevel_Init(); // Initialize fuel level module
 	memory_init();
 
   /* USER CODE END 2 */
