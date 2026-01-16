@@ -2,91 +2,151 @@
 #include "w25qxx.h"
 #include <string.h>
 
+/* Static state */
 static uint32_t current_sequence = 0;
 static uint32_t current_sector = SETTINGS_START_SECTOR;
+static bool initialized = false;
 
-bool settings_init(void) {
-    // Find the most recent valid settings entry
+/* Default settings stored in flash memory (placed in .flashmem section) */
+const device_settings_t default_settings __attribute__((section(".flashmem"))) = DEFAULT_SETTINGS;
+
+/* Initialize settings to default values from flash */
+static void settings_load_defaults(device_settings_t *settings)
+{
+    if (settings == NULL) return;
+    memcpy(settings, &default_settings, sizeof(device_settings_t));
+}
+
+bool settings_init(void)
+{
+    if (initialized) {
+        return true;
+    }
+    
+    /* Initialize W25QXX flash driver */
+    if (!W25qxx_Init()) {
+        return false;
+    }
+    
     uint32_t max_sequence = 0;
-    uint32_t max_sector = SETTINGS_START_SECTOR;
-
-    for (uint32_t sector = SETTINGS_START_SECTOR; sector < SETTINGS_START_SECTOR + SETTINGS_SECTORS; sector++) {
-        settings_entry_t entry;
-        W25qxx_ReadBytes((uint8_t*)&entry, sector * w25qxx.SectorSize, sizeof(settings_entry_t));
-
-        // Check if this sector has valid data (not all 0xFF)
+    uint32_t found_sector = SETTINGS_START_SECTOR;
+    bool found_any = false;
+    device_settings_t settings;
+    
+    /* Scan all sectors to find the most recent valid settings */
+    for (uint32_t sector = 0; sector < w25qxx.SectorCount; sector++) {
+        uint32_t sector_addr = sector * w25qxx.SectorSize;
+        W25qxx_ReadBytes((uint8_t*)&settings, sector_addr, sizeof(device_settings_t));
+        
+        /* Check if this sector has valid data (not all 0xFF) */
         bool is_empty = true;
-        for (uint32_t i = 0; i < sizeof(settings_entry_t); i++) {
-            if (((uint8_t*)&entry)[i] != 0xFF) {
+        for (uint32_t i = 0; i < sizeof(device_settings_t); i++) {
+            if (((uint8_t*)&settings)[i] != 0xFF) {
                 is_empty = false;
                 break;
             }
         }
-
+        
         if (!is_empty) {
-            device_settings_t temp_settings;
-            memcpy(temp_settings.bytes, entry.data, SETTINGS_SIZE);
-            if (temp_settings.fields.sequence > max_sequence) {
-                max_sequence = temp_settings.fields.sequence;
-                max_sector = sector;
+            found_any = true;
+            if (settings.sequence > max_sequence) {
+                max_sequence = settings.sequence;
+                found_sector = sector;
             }
         }
     }
-
-    current_sequence = max_sequence;
-    current_sector = max_sector;
-
-    return true;
-}
-
-bool settings_read(device_settings_t *settings) {
-    if (settings == NULL) return false;
-
-    settings_entry_t entry;
-    W25qxx_ReadBytes((uint8_t*)&entry, current_sector * w25qxx.SectorSize, sizeof(settings_entry_t));
-
-    // Check if data is valid
-    bool is_empty = true;
-    for (uint32_t i = 0; i < sizeof(settings_entry_t); i++) {
-        if (((uint8_t*)&entry)[i] != 0xFF) {
-            is_empty = false;
-            break;
-        }
-    }
-
-    if (is_empty) {
-        // No valid settings, return default (all zeros)
-        memset(settings, 0, sizeof(device_settings_t));
+    
+    if (found_any) {
+        current_sequence = max_sequence;
+        current_sector = found_sector;
     } else {
-        memcpy(settings->bytes, entry.data, SETTINGS_SIZE);
-    }
-
-    return true;
-}
-
-bool settings_write(const device_settings_t *settings) {
-    if (settings == NULL) return false;
-
-    // Increment sequence number
-    current_sequence++;
-
-    // Find next sector for wear leveling
-    current_sector++;
-    if (current_sector >= SETTINGS_START_SECTOR + SETTINGS_SECTORS) {
+        /* No valid settings found, use defaults */
+        current_sequence = 0;
         current_sector = SETTINGS_START_SECTOR;
     }
-
-    // Erase the sector
-    W25qxx_EraseSector(current_sector);
-
-    // Prepare entry with sequence included in data
-    settings_entry_t entry;
-    device_settings_t temp_settings = *settings;
-    temp_settings.fields.sequence = current_sequence;
-    memcpy(entry.data, temp_settings.bytes, SETTINGS_SIZE);
-
-    // Write to flash
-    W25qxx_WriteSector((uint8_t*)&entry, current_sector, 0, sizeof(settings_entry_t));
-
+    
+    initialized = true;
     return true;
 }
+
+bool settings_read(device_settings_t *settings)
+{
+    if (settings == NULL) return false;
+    
+    if (!initialized) {
+        if (!settings_init()) {
+            return false;
+        }
+    }
+    
+    /* Find sector with maximum sequence */
+    uint32_t max_sequence = 0;
+    uint32_t best_sector = SETTINGS_START_SECTOR;
+    device_settings_t temp;
+    bool found_any = false;
+    
+    for (uint32_t sector = 0; sector < w25qxx.SectorCount; sector++) {
+        uint32_t sector_addr = sector * w25qxx.SectorSize;
+        W25qxx_ReadBytes((uint8_t*)&temp, sector_addr, sizeof(device_settings_t));
+        
+        /* Check if sector has valid data */
+        bool is_empty = true;
+        for (uint32_t i = 0; i < sizeof(device_settings_t); i++) {
+            if (((uint8_t*)&temp)[i] != 0xFF) {
+                is_empty = false;
+                break;
+            }
+        }
+        
+        if (!is_empty) {
+            found_any = true;
+            if (temp.sequence > max_sequence) {
+                max_sequence = temp.sequence;
+                best_sector = sector;
+            }
+        }
+    }
+    
+    if (found_any) {
+        /* Read from best sector */
+        uint32_t sector_addr = best_sector * w25qxx.SectorSize;
+        W25qxx_ReadBytes((uint8_t*)settings, sector_addr, sizeof(device_settings_t));
+    } else {
+        /* No valid settings in flash, copy from default settings in flash memory */
+        settings_load_defaults(settings);
+    }
+    
+    return true;
+}
+
+bool settings_write(const device_settings_t *settings)
+{
+    if (settings == NULL) return false;
+    
+    if (!initialized) {
+        settings_init();
+    }
+    
+    /* Move to next sector (simple round-robin) */
+    current_sector++;
+    if (current_sector >= w25qxx.SectorCount) {
+        current_sector = SETTINGS_START_SECTOR;
+    }
+    
+    /* Increment sequence number */
+    current_sequence++;
+    
+    /* Prepare data with updated sequence */
+    device_settings_t data = *settings;
+    data.sequence = current_sequence;
+    
+    /* Erase sector */
+    W25qxx_EraseSector(current_sector);
+    
+    /* Write to flash */
+    uint32_t sector_addr = current_sector * w25qxx.SectorSize;
+    W25qxx_WriteSector((uint8_t*)&data, sector_addr, 0, sizeof(device_settings_t));
+    
+    return true;
+}
+
