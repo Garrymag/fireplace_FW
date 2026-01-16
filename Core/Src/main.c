@@ -145,16 +145,16 @@ float fuel_buff_disp = 0.0f; //
 float filt_temp = 0.0f;
 
 // define уровней для ацп
-#define T_LVL_HEATER 100.0f
-#define T_LVL_5 74.0f
-#define T_LVL_4 73.0f
-#define T_LVL_3 72.0f
-#define T_LVL_2 71.0f
-#define T_LVL_1 70.0f
-#define T_LVL_BURN_3 72.0f // 73
-#define T_LVL_BURN_2 67.0f // shalet 60
-#define T_LVL_HEATER_START 80.0f
-#define T_STARTUP 45.0f // температруа испарителей при котрой камин считается остывшим
+#define t_lvl_heater 100
+#define t_lvl_5 74
+#define t_lvl_4 73
+#define t_lvl_3 72
+#define t_lvl_2 71
+#define t_lvl_1 70
+#define t_lvl_burn_3 72 // 73
+#define t_lvl_burn_2 67 // shalet 60
+#define t_lvl_heater_start 80
+#define t_startup 45 // температруа испарителей при котрой камин считается остывшим
 
 uint8_t max_vapor_index = 0; // максимальный индекс датчика температуры испарителя - зависит от длины камина(количества испарителей)
 float test_max_vapor_T = 0.0f;

@@ -7,8 +7,7 @@ static uint32_t current_sequence = 0;
 static uint32_t current_sector = SETTINGS_START_SECTOR;
 static bool initialized = false;
 
-/* Default settings stored in flash memory (placed in .flashmem section) */
-const device_settings_t default_settings __attribute__((section(".flashmem"))) = DEFAULT_SETTINGS;
+
 
 /* Initialize settings to default values from flash */
 static void settings_load_defaults(device_settings_t *settings)
